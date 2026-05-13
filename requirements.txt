@@ -1,0 +1,30 @@
+# Telegram web scraping
+httpx
+beautifulsoup4
+lxml
+
+# AI and RAG
+langchain
+langchain-openai
+langchain-anthropic
+langchain-community
+langchain-groq
+langchain-google-genai
+chromadb
+sentence-transformers
+
+# Web API (для веб-интерфейса)
+fastapi
+uvicorn[standard]
+
+# Data processing
+pandas
+numpy
+
+# Configuration and utilities
+python-dotenv
+pydantic
+pydantic-settings
+
+# Storage
+aiosqlite

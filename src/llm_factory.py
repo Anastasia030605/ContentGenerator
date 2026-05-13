@@ -1,0 +1,169 @@
+"""Фабрика LLM и реестр доступных моделей.
+
+Здесь живёт вся логика «какие провайдеры и модели мы поддерживаем» и
+«как создать LLM по выбору пользователя». Бэкенд отдаёт реестр на фронт
+для dropdown'а, а при генерации создаёт LLM через `build_llm(...)`.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_community.llms import Ollama
+from langchain_groq import ChatGroq
+
+from .config import settings
+
+
+@dataclass(frozen=True)
+class ModelOption:
+    id: str
+    label: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderInfo:
+    id: str
+    label: str
+    is_free: bool
+    requires_key: bool
+    key_env_var: Optional[str]
+    models: list[ModelOption]
+
+
+# Реестр того, что отдаётся фронту для построения UI.
+# Дефолтный фокус — бесплатные облачные провайдеры (Groq и Gemini).
+# Остальные оставлены для BYOK-сценариев, если фронт захочет их показать.
+PROVIDERS: dict[str, ProviderInfo] = {
+    "groq": ProviderInfo(
+        id="groq",
+        label="Groq (бесплатно)",
+        is_free=True,
+        requires_key=True,
+        key_env_var="GROQ_API_KEY",
+        models=[
+            ModelOption("llama-3.3-70b-versatile", "Llama 3.3 70B", "Качественная, быстрая"),
+            ModelOption("llama-3.1-8b-instant", "Llama 3.1 8B", "Самая быстрая"),
+            ModelOption("qwen/qwen3-32b", "Qwen 3 32B", "Хороша для русского"),
+        ],
+    ),
+    "google": ProviderInfo(
+        id="google",
+        label="Google Gemini (бесплатно)",
+        is_free=True,
+        requires_key=True,
+        key_env_var="GOOGLE_API_KEY",
+        models=[
+            ModelOption("gemini-2.0-flash", "Gemini 2.0 Flash", "Быстрая, бесплатный тариф"),
+            ModelOption("gemini-2.5-flash", "Gemini 2.5 Flash", "Новее, чуть умнее"),
+            ModelOption("gemini-2.5-pro", "Gemini 2.5 Pro", "Самая умная, лимиты строже"),
+        ],
+    ),
+    "ollama": ProviderInfo(
+        id="ollama",
+        label="Ollama (локально)",
+        is_free=True,
+        requires_key=False,
+        key_env_var=None,
+        models=[
+            ModelOption("llama3.2:3b", "Llama 3.2 3B", "Лёгкая, для слабого железа"),
+            ModelOption("llama3.1:8b", "Llama 3.1 8B", "Средняя"),
+            ModelOption("qwen2.5:7b", "Qwen 2.5 7B", "Хороша для русского"),
+        ],
+    ),
+    "openai": ProviderInfo(
+        id="openai",
+        label="OpenAI (платно, BYOK)",
+        is_free=False,
+        requires_key=True,
+        key_env_var="OPENAI_API_KEY",
+        models=[
+            ModelOption("gpt-4o-mini", "GPT-4o mini", "Дешёвая"),
+            ModelOption("gpt-4o", "GPT-4o", "Топовая"),
+        ],
+    ),
+    "anthropic": ProviderInfo(
+        id="anthropic",
+        label="Anthropic Claude (платно, BYOK)",
+        is_free=False,
+        requires_key=True,
+        key_env_var="ANTHROPIC_API_KEY",
+        models=[
+            ModelOption("claude-3-5-haiku-latest", "Claude 3.5 Haiku", "Дешевле"),
+            ModelOption("claude-sonnet-4-5", "Claude Sonnet 4.5", "Топовая"),
+        ],
+    ),
+}
+
+
+def list_providers(only_free: bool = False) -> list[dict]:
+    """Сериализованный реестр для отдачи фронту."""
+    result = []
+    for p in PROVIDERS.values():
+        if only_free and not p.is_free:
+            continue
+        result.append({
+            "id": p.id,
+            "label": p.label,
+            "is_free": p.is_free,
+            "requires_key": p.requires_key,
+            "key_env_var": p.key_env_var,
+            "models": [
+                {"id": m.id, "label": m.label, "description": m.description}
+                for m in p.models
+            ],
+        })
+    return result
+
+
+def build_llm(
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: float = 0.8,
+):
+    """Создать LLM по выбору пользователя.
+
+    Если provider/model/api_key не заданы — берётся из settings.
+    `api_key` позволяет BYOK: фронт может передать ключ из формы пользователя.
+    """
+    provider = (provider or settings.ai_provider).lower()
+
+    if provider == "groq":
+        model = model or settings.groq_model
+        key = api_key or settings.groq_api_key
+        if not key:
+            raise ValueError("Не задан GROQ_API_KEY. Получите бесплатный ключ на https://console.groq.com/keys")
+        return ChatGroq(api_key=key, model=model, temperature=temperature)
+
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        model = model or settings.google_model
+        key = api_key or settings.google_api_key
+        if not key:
+            raise ValueError("Не задан GOOGLE_API_KEY. Получите бесплатный ключ на https://aistudio.google.com/apikey")
+        return ChatGoogleGenerativeAI(google_api_key=key, model=model, temperature=temperature)
+
+    if provider == "ollama":
+        model = model or settings.ollama_model
+        return Ollama(base_url=settings.ollama_base_url, model=model, temperature=temperature)
+
+    if provider == "openai":
+        model = model or settings.openai_model
+        key = api_key or settings.openai_api_key
+        if not key:
+            raise ValueError("Не задан OPENAI_API_KEY")
+        return ChatOpenAI(api_key=key, model=model, temperature=temperature)
+
+    if provider == "anthropic":
+        model = model or settings.anthropic_model
+        key = api_key or settings.anthropic_api_key
+        if not key:
+            raise ValueError("Не задан ANTHROPIC_API_KEY")
+        return ChatAnthropic(api_key=key, model=model, temperature=temperature)
+
+    raise ValueError(
+        f"Неизвестный провайдер: {provider}. Доступные: {', '.join(PROVIDERS.keys())}"
+    )
