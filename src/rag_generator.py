@@ -1,11 +1,6 @@
 """RAG генератор для создания постов в стиле канала"""
 
 from typing import List, Dict, Optional
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-from sentence_transformers import SentenceTransformer
-
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from .config import settings
 from .llm_factory import build_llm
@@ -22,6 +17,21 @@ class RAGPostGenerator:
         model: str | None = None,
         api_key: str | None = None,
     ):
+        try:
+            import chromadb
+            from chromadb.config import Settings as ChromaSettings
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет chromadb не установлен. Установите его через requirements.txt или pip install chromadb"
+            ) from exc
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет sentence-transformers не установлен. Установите его через requirements.txt или pip install sentence-transformers"
+            ) from exc
+
         self.embedding_model = SentenceTransformer(settings.embedding_model)
         self.chroma_client = chromadb.PersistentClient(
             path=settings.chroma_persist_directory,
@@ -193,6 +203,13 @@ class RAGPostGenerator:
 
 Напиши только текст поста, без комментариев и пояснений."""
 
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-core не установлен. Установите его через requirements.txt или pip install langchain-core"
+            ) from exc
+
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
@@ -220,7 +237,13 @@ class RAGPostGenerator:
             raise ValueError("Нет предыдущего поста для улучшения. Сначала сгенерируйте пост.")
 
         # Добавляем в историю предыдущий ответ и фидбек
-        from langchain_core.messages import AIMessage
+        try:
+            from langchain_core.messages import AIMessage
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-core не установлен. Установите его через requirements.txt или pip install langchain-core"
+            ) from exc
+
         self._last_messages.append(AIMessage(content=self._last_post))
         self._last_messages.append(HumanMessage(
             content=f"Переделай пост с учётом замечаний: {feedback}\n\nНапиши только текст поста, без комментариев и пояснений."

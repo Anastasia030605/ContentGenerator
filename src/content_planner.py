@@ -4,8 +4,6 @@ from typing import List, Dict
 from datetime import datetime, timedelta
 import json
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from .config import settings
 from .analyzer import PostAnalyzer
 from .llm_factory import build_llm
@@ -117,6 +115,13 @@ class ContentPlanner:
     "goal": "Вовлечение аудитории"
   }}
 ]"""
+
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-core не установлен. Установите его через requirements.txt или pip install langchain-core"
+            ) from exc
 
         messages = [
             SystemMessage(content=system_prompt),

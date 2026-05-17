@@ -45,8 +45,11 @@ class TelegramDataCollector:
 
     BASE_URL = "https://t.me/s"
 
-    def __init__(self):
-        self.channel_username = settings.telegram_channel_username.lstrip('@')
+    def __init__(self, channel_username: str | None = None):
+        channel = channel_username or settings.telegram_channel_username
+        if not channel:
+            raise ValueError("Не задан Telegram-канал. Укажите channel_username в запросе или в .env файле.")
+        self.channel_username = channel.lstrip('@')
         self.db_path = settings.posts_db_path
         self._init_database()
 

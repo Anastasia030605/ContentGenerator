@@ -5,13 +5,9 @@
 для dropdown'а, а при генерации создаёт LLM через `build_llm(...)`.
 """
 
+import json
 from dataclasses import dataclass
 from typing import Optional
-
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_community.llms import Ollama
-from langchain_groq import ChatGroq
 
 from .config import settings
 
@@ -73,6 +69,16 @@ PROVIDERS: dict[str, ProviderInfo] = {
             ModelOption("qwen2.5:7b", "Qwen 2.5 7B", "Хороша для русского"),
         ],
     ),
+    "demo": ProviderInfo(
+        id="demo",
+        label="Демо-режим",
+        is_free=True,
+        requires_key=False,
+        key_env_var=None,
+        models=[
+            ModelOption("demo", "Демо модель", "Работает без API и ключей"),
+        ],
+    ),
     "openai": ProviderInfo(
         id="openai",
         label="OpenAI (платно, BYOK)",
@@ -118,6 +124,51 @@ def list_providers(only_free: bool = False) -> list[dict]:
     return result
 
 
+class DummyLLM:
+    """Простая локальная заглушка для демонстрации работы генерации."""
+
+    def invoke(self, messages):
+        prompt = "\n".join(
+            getattr(message, 'content', str(message)) for message in messages
+        )
+        lower = prompt.lower()
+
+        if "контент-план" in lower or "создай контент-план" in lower:
+            plan = [
+                {
+                    "week": 1,
+                    "day": "Понедельник",
+                    "time": "10:00",
+                    "topic": "Идея для поста",
+                    "format": "text",
+                    "description": "Простой пост для привлечения внимания аудитории.",
+                    "goal": "Вовлечение аудитории"
+                },
+                {
+                    "week": 1,
+                    "day": "Среда",
+                    "time": "18:00",
+                    "topic": "Полезный трюк",
+                    "format": "photo",
+                    "description": "Пост с наглядным примером и краткой инструкцией.",
+                    "goal": "Обучение"
+                }
+            ]
+            return json.dumps(plan, ensure_ascii=False, indent=2)
+
+        topic = "тема"
+        if "создай пост на тему:" in lower:
+            topic = prompt.split("создай пост на тему:", 1)[1].split("\n", 1)[0].strip()
+        elif "topic:" in lower:
+            topic = prompt.split("topic:", 1)[1].split("\n", 1)[0].strip()
+
+        return (
+            f"Демо-пост на тему '{topic}'.\n"
+            "Этот текст сгенерирован локально без обращения к внешнему API.\n"
+            "Используйте этот режим, чтобы быстро проверить интерфейс и структуру выходных данных."
+        )
+
+
 def build_llm(
     provider: Optional[str] = None,
     model: Optional[str] = None,
@@ -131,7 +182,16 @@ def build_llm(
     """
     provider = (provider or settings.ai_provider).lower()
 
+    if provider == "demo":
+        return DummyLLM()
+
     if provider == "groq":
+        try:
+            from langchain_groq import ChatGroq
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-groq не установлен. Установите его через requirements.txt или pip install langchain-groq"
+            ) from exc
         model = model or settings.groq_model
         key = api_key or settings.groq_api_key
         if not key:
@@ -139,7 +199,12 @@ def build_llm(
         return ChatGroq(api_key=key, model=model, temperature=temperature)
 
     if provider == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-google-genai не установлен. Установите его через requirements.txt или pip install langchain-google-genai"
+            ) from exc
         model = model or settings.google_model
         key = api_key or settings.google_api_key
         if not key:
@@ -147,10 +212,22 @@ def build_llm(
         return ChatGoogleGenerativeAI(google_api_key=key, model=model, temperature=temperature)
 
     if provider == "ollama":
+        try:
+            from langchain_community.llms import Ollama
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-community не установлен. Установите его через requirements.txt или pip install langchain-community"
+            ) from exc
         model = model or settings.ollama_model
         return Ollama(base_url=settings.ollama_base_url, model=model, temperature=temperature)
 
     if provider == "openai":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-openai не установлен. Установите его через requirements.txt или pip install langchain-openai"
+            ) from exc
         model = model or settings.openai_model
         key = api_key or settings.openai_api_key
         if not key:
@@ -158,6 +235,12 @@ def build_llm(
         return ChatOpenAI(api_key=key, model=model, temperature=temperature)
 
     if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "Пакет langchain-anthropic не установлен. Установите его через requirements.txt или pip install langchain-anthropic"
+            ) from exc
         model = model or settings.anthropic_model
         key = api_key or settings.anthropic_api_key
         if not key:

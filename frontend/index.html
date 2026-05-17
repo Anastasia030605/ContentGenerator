@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ContentGenerator Web UI</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <header>
+            <h1>ContentGenerator</h1>
+            <p>Веб-интерфейс для управления сбором, анализом, планированием и генерацией контента.</p>
+        </header>
+
+        <section class="section cards">
+            <div class="card full-width">
+                <h2>Как начать</h2>
+                <p>Введите @username канала, затем соберите посты или используйте демонстрационные данные.</p>
+                <ol>
+                    <li>Введите имя Telegram-канала</li>
+                    <li>Нажмите «Загрузить инфо» или «Собрать посты»</li>
+                    <li>Создайте план</li>
+                    <li>Сгенерируйте пост</li>
+                </ol>
+            </div>
+        </section>
+
+        <section class="section cards">
+            <div class="card">
+                <h2>Статус</h2>
+                <button id="btnHealth" class="primary">Проверить API</button>
+                <button id="btnRefreshStatus">Обновить статус</button>
+                <div id="healthResult" class="result"></div>
+                <div id="statusResult" class="result"></div>
+            </div>
+
+            <div class="card">
+                <h2>Информация канала</h2>
+                <button id="btnChannelInfo">Загрузить инфо</button>
+                <div id="channelInfo" class="result"></div>
+            </div>
+        </section>
+
+        <section class="section cards">
+            <div class="card">
+                <h2>Сбор постов</h2>
+                <label>Telegram канал <input id="channelUsername" type="text" placeholder="@example_channel" /></label>
+                <label>Лимит постов <input id="collectLimit" type="number" min="1" value="50" /></label>
+                <label>За последние дни <input id="collectDays" type="number" min="1" placeholder="Опционально" /></label>
+                <button id="btnCollect" class="primary">Собрать посты</button>
+                <button id="btnDemoData">Заполнить демонстрационными постами</button>
+                <div id="collectResult" class="result"></div>
+            </div>
+
+            <div class="card">
+                <h2>Анализ / Индексация</h2>
+                <button id="btnAnalyze">Анализ канала</button>
+                <button id="btnIndex">Проиндексировать</button>
+                <div id="analysisResult" class="result"></div>
+            </div>
+        </section>
+
+        <section class="section cards">
+            <div class="card">
+                <h2>Контент-план</h2>
+                <label>Недель <input id="planWeeks" type="number" min="1" value="2" /></label>
+                <label>Постов в неделю <input id="planPostsPerWeek" type="number" min="1" value="5" /></label>
+                <label>Инструкции <input id="planInstructions" type="text" placeholder="Например, образовательный контент" /></label>
+                <button id="btnCreatePlan" class="primary">Создать план</button>
+                <div id="planResult" class="result"></div>
+            </div>
+
+            <div class="card">
+                <h2>Генерация поста</h2>
+                <label>Тема <input id="postTopic" type="text" placeholder="Утренняя мотивация" /></label>
+                <label>Тип <select id="postFormat"><option value="text">text</option><option value="photo">photo</option><option value="video">video</option></select></label>
+                <label>Контекст <input id="postContext" type="text" placeholder="Дополнительный контекст" /></label>
+                <button id="btnGeneratePost" class="primary">Сгенерировать пост</button>
+                <button id="btnGenerateFromPlan">Генерировать по последнему плану</button>
+                <div id="generateResult" class="result"></div>
+            </div>
+        </section>
+
+        <section class="section cards">
+            <div class="card full-width">
+                <h2>Выбор модели</h2>
+                <label>Провайдер <select id="providerSelect"></select></label>
+                <label>Модель <select id="modelSelect"></select></label>
+                <label>API-ключ (BYOK) <input id="apiKey" type="password" placeholder="По желанию" /></label>
+            </div>
+        </section>
+
+        <section class="section cards">
+            <div class="card full-width">
+                <h2>История</h2>
+                <button id="btnLoadPosts">Загрузить последние посты</button>
+                <button id="btnLoadPlans">Загрузить планы</button>
+                <div id="historyResult" class="result"></div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

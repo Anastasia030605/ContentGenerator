@@ -18,24 +18,43 @@
     POST /api/generate-from-plan — сгенерировать посты по контент-плану
 """
 
+# Загрузить переменные окружения из .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=".env", encoding="utf-8", override=True)
+except ModuleNotFoundError:
+    pass
+
 import json
 import math
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import settings
 from .llm_factory import build_llm, list_providers
-from .telegram_client import TelegramDataCollector
+from .telegram_client import PostMetrics, TelegramDataCollector
 from .analyzer import PostAnalyzer
 from .content_planner import ContentPlanner
 from .rag_generator import RAGPostGenerator
 
 
 app = FastAPI(title="ContentGenerator API", version="0.1.0")
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    index_file = FRONTEND_DIR / "index.html"
+    return HTMLResponse(index_file.read_text(encoding="utf-8"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,10 +83,12 @@ def get_rag(require_collection: bool = True) -> RAGPostGenerator:
     return _rag
 
 
-def get_collector() -> TelegramDataCollector:
+def get_collector(channel_username: Optional[str] = None) -> TelegramDataCollector:
     global _collector
-    if _collector is None:
-        _collector = TelegramDataCollector()
+    if channel_username:
+        channel_username = channel_username.lstrip('@')
+    if _collector is None or (channel_username and channel_username != _collector.channel_username):
+        _collector = TelegramDataCollector(channel_username=channel_username)
     return _collector
 
 
@@ -98,6 +119,7 @@ class LLMSelection(BaseModel):
 class CollectRequest(BaseModel):
     limit: int = 100
     days_back: Optional[int] = None
+    channel_username: Optional[str] = None
 
 
 class CollectResponse(BaseModel):
@@ -134,6 +156,18 @@ class GenerateResponse(BaseModel):
     model: Optional[str]
 
 
+class DemoSetupResponse(BaseModel):
+    created: int
+    message: str
+
+
+class StatusResponse(BaseModel):
+    posts_count: int
+    plans_count: int
+    latest_plan: Optional[str] = None
+    demo_available: bool = True
+
+
 # ===== Базовые =====
 
 @app.get("/api/health")
@@ -147,11 +181,57 @@ def get_models(only_free: bool = False):
     return {"providers": list_providers(only_free=only_free)}
 
 
+@app.get("/api/status", response_model=StatusResponse)
+def status(channel_username: Optional[str] = None):
+    collector = get_collector(channel_username=channel_username)
+    posts = collector.load_posts()
+    plan_files = sorted(Path(settings.data_dir).glob("content_plan_*.json"), reverse=True)
+    return StatusResponse(
+        posts_count=len(posts),
+        plans_count=len(plan_files),
+        latest_plan=plan_files[0].name if plan_files else None,
+        demo_available=True,
+    )
+
+
+@app.post("/api/demo-setup", response_model=DemoSetupResponse)
+def demo_setup():
+    collector = get_collector()
+    sample_texts = [
+        "Сегодня расскажем, как создать идеальный пост для вашего Telegram-канала.",
+        "Примеры форматирования: короткий заголовок, эмодзи и призыв к действию.",
+        "Почему важен контент-план и как его использовать каждый день.",
+        "Обзор полезных инструментов для продвижения канала и роста аудитории.",
+        "История успеха: как один пост собрал тысячи просмотров за 24 часа.",
+        "Секреты написания цепляющих заголовков для Telegram.",
+        "Как собирать идеи для контента и не потерять вдохновение.",
+        "Где искать актуальные темы и как адаптировать их под свою аудиторию.",
+        "Рекомендации по частоте публикаций и лучшему времени для выхода постов.",
+        "Заключение: что важно делать каждый день, чтобы канал рос."
+    ]
+    now = datetime.now()
+    posts = []
+    for idx, text in enumerate(sample_texts, start=1):
+        posts.append(PostMetrics(
+            post_id=1000 + idx,
+            date=now - timedelta(days=idx),
+            text=text,
+            views=500 + idx * 50,
+            forwards=5 + idx,
+            replies=2 + idx,
+            reactions={"like": 10 + idx, "heart": 3 + idx},
+            media_type="text",
+        ))
+
+    collector.save_posts(posts)
+    return DemoSetupResponse(created=len(posts), message="Демонстрационные посты успешно добавлены в базу данных.")
+
+
 # ===== Сбор постов / инфо о канале =====
 
 @app.get("/api/channel-info")
-async def channel_info():
-    collector = get_collector()
+async def channel_info(channel_username: Optional[str] = None):
+    collector = get_collector(channel_username=channel_username)
     try:
         return await collector.get_channel_info()
     except Exception as e:
@@ -160,7 +240,7 @@ async def channel_info():
 
 @app.post("/api/collect", response_model=CollectResponse)
 async def collect(req: CollectRequest):
-    collector = get_collector()
+    collector = get_collector(channel_username=req.channel_username)
     try:
         await collector.connect()
         posts = await collector.collect_posts(limit=req.limit, days_back=req.days_back)
@@ -224,6 +304,8 @@ def index_posts():
         return {"indexed": rag.collection.count(), "collection": "channel_posts"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка индексирования: {str(e)}")
 
 
 # ===== Контент-план =====
@@ -236,11 +318,15 @@ def create_content_plan(req: ContentPlanRequest):
         raise HTTPException(status_code=400, detail="Нет постов в БД. Сначала вызовите POST /api/collect")
     analyzer = PostAnalyzer(posts)
     try:
+        # Если ключ не передан, используем из конфига
+        api_key = req.api_key or None
+        provider = req.provider or settings.ai_provider
+        
         planner = ContentPlanner(
             analyzer,
-            provider=req.provider,
+            provider=provider,
             model=req.model,
-            api_key=req.api_key,
+            api_key=api_key,
         )
         content_plan = planner.generate_content_plan(
             weeks=req.weeks,
