@@ -1,6 +1,7 @@
 """RAG генератор для создания постов в стиле канала"""
 
 from typing import List, Dict, Optional
+from pathlib import Path
 
 from .config import settings
 from .llm_factory import build_llm
@@ -17,20 +18,36 @@ class RAGPostGenerator:
         model: str | None = None,
         api_key: str | None = None,
     ):
+        # Проверяем наличие необходимых пакетов с подробными инструкциями
+        missing_packages = []
+        
         try:
             import chromadb
             from chromadb.config import Settings as ChromaSettings
         except ModuleNotFoundError as exc:
+            missing_packages.append("chromadb")
             raise ValueError(
-                "Пакет chromadb не установлен. Установите его через requirements.txt или pip install chromadb"
+                f"Пакет chromadb не установлен. Установите его командой: pip install chromadb\n"
+                f"Или установите все зависимости из requirements.txt: pip install -r requirements.txt"
             ) from exc
 
         try:
             from sentence_transformers import SentenceTransformer
         except ModuleNotFoundError as exc:
+            missing_packages.append("sentence-transformers")
             raise ValueError(
-                "Пакет sentence-transformers не установлен. Установите его через requirements.txt или pip install sentence-transformers"
+                f"Пакет sentence-transformers не установлен. Установите его командой: pip install sentence-transformers\n"
+                f"Или установите все зависимости из requirements.txt: pip install -r requirements.txt\n"
+                f"Для работы RAG-генератора необходимы обе библиотеки: chromadb и sentence-transformers."
             ) from exc
+
+        if missing_packages:
+            raise ValueError(
+                f"Отсутствуют необходимые пакеты: {', '.join(missing_packages)}.\n"
+                f"Установите все зависимости командой: pip install -r requirements.txt\n"
+                f"Или установите пакеты по отдельности:\n"
+                f"pip install chromadb sentence-transformers"
+            )
 
         self.embedding_model = SentenceTransformer(settings.embedding_model)
         self.chroma_client = chromadb.PersistentClient(
@@ -51,6 +68,19 @@ class RAGPostGenerator:
             posts: Список постов для индексации
             collection_name: Имя коллекции в ChromaDB
         """
+        # Проверяем доступность директории для ChromaDB
+        chroma_dir = Path(settings.chroma_persist_directory)
+        try:
+            chroma_dir.mkdir(parents=True, exist_ok=True)
+            # Проверяем возможность записи
+            test_file = chroma_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+        except Exception as e:
+            raise ValueError(
+                f"Невозможно записать в директорию {chroma_dir}. Проверьте права доступа: {str(e)}"
+            )
+
         # Удаляем старую коллекцию если есть
         try:
             self.chroma_client.delete_collection(name=collection_name)
@@ -58,44 +88,57 @@ class RAGPostGenerator:
             pass
 
         # Создаем новую коллекцию
-        self.collection = self.chroma_client.create_collection(
-            name=collection_name,
-            metadata={"description": "Telegram channel posts for RAG"}
-        )
+        try:
+            self.collection = self.chroma_client.create_collection(
+                name=collection_name,
+                metadata={"description": "Telegram channel posts for RAG"}
+            )
+        except Exception as e:
+            raise ValueError(f"Ошибка создания коллекции ChromaDB: {str(e)}")
 
         # Фильтруем посты с текстом
         valid_posts = [p for p in posts if p.text and len(p.text.strip()) > 10]
 
         if not valid_posts:
-            raise ValueError("Нет постов с текстом для индексации")
+            raise ValueError("Нет постов с текстом для индексации. Убедитесь, что собраны посты с текстовым содержимым.")
 
         print(f"Индексирую {len(valid_posts)} постов...")
 
-        # Генерируем эмбеддинги
-        texts = [p.text for p in valid_posts]
-        embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
+        try:
+            # Генерируем эмбеддинги
+            texts = [p.text for p in valid_posts]
+            embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
 
-        # Добавляем в ChromaDB
-        ids = [f"post_{p.post_id}" for p in valid_posts]
-        metadatas = [
-            {
-                "post_id": str(p.post_id),
-                "date": p.date.isoformat(),
-                "views": p.views,
-                "engagement_rate": (p.forwards + sum(p.reactions.values()) + p.replies) / max(p.views, 1),
-                "media_type": p.media_type or "none"
-            }
-            for p in valid_posts
-        ]
+            # Добавляем в ChromaDB
+            ids = [f"post_{p.post_id}" for p in valid_posts]
+            metadatas = [
+                {
+                    "post_id": str(p.post_id),
+                    "date": p.date.isoformat(),
+                    "views": p.views,
+                    "engagement_rate": (p.forwards + sum(p.reactions.values()) + p.replies) / max(p.views, 1),
+                    "media_type": p.media_type or "none"
+                }
+                for p in valid_posts
+            ]
 
-        self.collection.add(
-            ids=ids,
-            embeddings=embeddings.tolist(),
-            documents=texts,
-            metadatas=metadatas
-        )
+            self.collection.add(
+                ids=ids,
+                embeddings=embeddings.tolist(),
+                documents=texts,
+                metadatas=metadatas
+            )
 
-        print(f"[OK] Проиндексировано {len(valid_posts)} постов в коллекцию '{collection_name}'")
+            print(f"[OK] Проиндексировано {len(valid_posts)} постов в коллекцию '{collection_name}'")
+            return True
+        except Exception as e:
+            # Удаляем коллекцию при ошибке
+            try:
+                self.chroma_client.delete_collection(name=collection_name)
+                self.collection = None
+            except:
+                pass
+            raise ValueError(f"Ошибка индексации постов: {str(e)}")
 
     def load_collection(self, collection_name: str = "channel_posts"):
         """Загрузка существующей коллекции"""
@@ -174,16 +217,21 @@ class RAGPostGenerator:
         # Находим похожие посты для контекста
         similar_posts_context = ""
         if use_similar_posts:
-            similar_posts = self.find_similar_posts(
-                query=topic,
-                n_results=n_similar,
-                min_engagement=0.0
-            )
+            try:
+                similar_posts = self.find_similar_posts(
+                    query=topic,
+                    n_results=n_similar,
+                    min_engagement=0.0
+                )
 
-            if similar_posts:
-                similar_posts_context = "\n\nПримеры успешных постов канала:\n"
-                for i, post in enumerate(similar_posts[:3], 1):
-                    similar_posts_context += f"\n{i}. (Просмотры: {post['views']})\n{post['text']}\n"
+                if similar_posts:
+                    similar_posts_context = "\n\nПримеры успешных постов канала:\n"
+                    for i, post in enumerate(similar_posts[:3], 1):
+                        similar_posts_context += f"\n{i}. (Просмотры: {post['views']})\n{post['text']}\n"
+            except ValueError as e:
+                # Если коллекция не загружена, продолжаем без похожих постов
+                print(f"Предупреждение: {e}. Генерация без контекста похожих постов.")
+                similar_posts_context = ""
 
         # Формируем промпт
         system_prompt = f"""Ты - копирайтер Telegram канала. Твоя задача - создать пост в стиле этого канала.
@@ -216,7 +264,10 @@ class RAGPostGenerator:
         ]
 
         print(f"Генерирую пост на тему: {topic}...")
-        response = self.llm.invoke(messages)
+        try:
+            response = self.llm.invoke(messages)
+        except Exception as e:
+            raise ValueError(f"Ошибка при обращении к LLM: {str(e)}")
 
         generated_post = response.content.strip() if hasattr(response, 'content') else response.strip()
         print(f"[OK] Пост создан ({len(generated_post)} символов)")
@@ -250,7 +301,10 @@ class RAGPostGenerator:
         ))
 
         print(f"Улучшаю пост...")
-        response = self.llm.invoke(self._last_messages)
+        try:
+            response = self.llm.invoke(self._last_messages)
+        except Exception as e:
+            raise ValueError(f"Ошибка при обращении к LLM: {str(e)}")
 
         generated_post = response.content.strip() if hasattr(response, 'content') else response.strip()
         print(f"[OK] Пост обновлён ({len(generated_post)} символов)")
@@ -282,13 +336,17 @@ class RAGPostGenerator:
             context = f"Цель: {plan_item['goal']}. {plan_item['description']}"
 
             # Генерируем пост
-            post_text = self.generate_post(
-                topic=plan_item['topic'],
-                format_type=plan_item['format'],
-                additional_context=context,
-                use_similar_posts=True,
-                n_similar=5
-            )
+            try:
+                post_text = self.generate_post(
+                    topic=plan_item['topic'],
+                    format_type=plan_item['format'],
+                    additional_context=context,
+                    use_similar_posts=True,
+                    n_similar=5
+                )
+            except Exception as e:
+                print(f"Ошибка генерации поста {i}: {e}")
+                post_text = f"[Ошибка генерации: {str(e)}]"
 
             # Добавляем к плану
             result = plan_item.copy()
@@ -321,5 +379,3 @@ class RAGPostGenerator:
         }
 
         return style_features
-
-

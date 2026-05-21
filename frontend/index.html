@@ -28,16 +28,9 @@
 
         <section class="section cards">
             <div class="card">
-                <h2>Статус</h2>
-                <button id="btnHealth" class="primary">Проверить API</button>
-                <button id="btnRefreshStatus">Обновить статус</button>
-                <div id="healthResult" class="result"></div>
-                <div id="statusResult" class="result"></div>
-            </div>
-
-            <div class="card">
-                <h2>Информация канала</h2>
-                <button id="btnChannelInfo">Загрузить инфо</button>
+                <h2>Telegram канал</h2>
+                <label>Введите @username канала <input id="channelUsername" type="text" placeholder="@example_channel" /></label>
+                <button id="btnChannelInfo" class="primary">Загрузить инфо о канале</button>
                 <div id="channelInfo" class="result"></div>
             </div>
         </section>
@@ -45,7 +38,6 @@
         <section class="section cards">
             <div class="card">
                 <h2>Сбор постов</h2>
-                <label>Telegram канал <input id="channelUsername" type="text" placeholder="@example_channel" /></label>
                 <label>Лимит постов <input id="collectLimit" type="number" min="1" value="50" /></label>
                 <label>За последние дни <input id="collectDays" type="number" min="1" placeholder="Опционально" /></label>
                 <button id="btnCollect" class="primary">Собрать посты</button>
@@ -101,6 +93,6 @@
         </section>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=4"></script>
 </body>
 </html>

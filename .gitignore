@@ -49,26 +49,3 @@ data/content_plan_*.json
 # Telegram session
 *.session
 *.session-journal
-
-# Chroma / embeddings
-chroma/
-*.chroma
-
-# Local caches
-.cache/
-hf_cache/
-huggingface_cache/
-
-# Logs
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Docker / temp
-tmp/
-temp/
-
-# Docker volumes / local model data
-ollama/

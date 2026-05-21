@@ -20,14 +20,35 @@ class PostAnalyzer:
         self.posts = posts
         self.df = self._posts_to_dataframe()
 
+    def _safe_astimezone(self, dt: datetime, tz: timezone) -> datetime:
+        """Безопасное преобразование времени в указанный часовой пояс"""
+        if dt is None:
+            return None
+        # Если datetime не имеет часового пояса, считаем что это UTC
+        if dt.tzinfo is None:
+            # Добавляем UTC и конвертируем в нужный пояс
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(tz)
+
+    def _ensure_timezone(self, dt: datetime) -> datetime:
+        """Гарантирует, что datetime имеет часовой пояс (UTC)"""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def _posts_to_dataframe(self) -> pd.DataFrame:
         """Преобразование постов в DataFrame для анализа"""
         data = []
         for post in self.posts:
+            # Гарантируем, что дата имеет часовой пояс
+            safe_date = self._ensure_timezone(post.date)
+            
             total_reactions = sum(post.reactions.values())
             data.append({
                 'post_id': post.post_id,
-                'date': post.date,
+                'date': safe_date,
                 'text': post.text,
                 'views': post.views,
                 'forwards': post.forwards,
@@ -35,8 +56,8 @@ class PostAnalyzer:
                 'reactions': total_reactions,
                 'media_type': post.media_type,
                 'text_length': len(post.text),
-                'hour': post.date.astimezone(MSK).hour,
-                'day_of_week': post.date.astimezone(MSK).weekday(),
+                'hour': self._safe_astimezone(safe_date, MSK).hour,
+                'day_of_week': self._safe_astimezone(safe_date, MSK).weekday(),
                 'has_emoji': bool(re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]', post.text)),
                 'has_link': bool(re.search(r'http[s]?://|t\.me/', post.text)),
                 'has_hashtag': bool(re.search(r'#\w+', post.text)),
@@ -167,12 +188,30 @@ class PostAnalyzer:
                 'avg_engagement_rate': 0
             }
 
+        # Безопасное получение минимальной и максимальной даты
+        try:
+            min_date = self.df['date'].min()
+            max_date = self.df['date'].max()
+            
+            # Гарантируем, что даты имеют часовой пояс для isoformat
+            min_date_safe = self._ensure_timezone(min_date)
+            max_date_safe = self._ensure_timezone(max_date)
+            
+            date_range = {
+                'from': min_date_safe.isoformat(),
+                'to': max_date_safe.isoformat()
+            }
+        except Exception as e:
+            # Если возникла ошибка при работе с датами, используем fallback
+            print(f"Предупреждение: ошибка при обработке дат: {e}")
+            date_range = {
+                'from': None,
+                'to': None
+            }
+
         return {
             'total_posts': len(self.df),
-            'date_range': {
-                'from': self.df['date'].min().isoformat(),
-                'to': self.df['date'].max().isoformat()
-            },
+            'date_range': date_range,
             'avg_views': round(self.df['views'].mean(), 2),
             'median_views': round(self.df['views'].median(), 2),
             'max_views': int(self.df['views'].max()),
@@ -189,41 +228,51 @@ class PostAnalyzer:
 
     def generate_insights(self) -> Dict[str, any]:
         """Генерация инсайтов на основе анализа"""
-        insights = {
-            'summary': self.get_summary_statistics(),
-            'best_timing': self.analyze_posting_time(),
-            'content_patterns': self.analyze_content_patterns(),
-            'top_posts': self.get_top_posts(n=5, metric='views').to_dict('records'),
-            'keywords': self.extract_successful_keywords(top_n=30)
-        }
+        try:
+            insights = {
+                'summary': self.get_summary_statistics(),
+                'best_timing': self.analyze_posting_time(),
+                'content_patterns': self.analyze_content_patterns(),
+                'top_posts': self.get_top_posts(n=5, metric='views').to_dict('records'),
+                'keywords': self.extract_successful_keywords(top_n=30)
+            }
 
-        # Генерируем рекомендации
-        recommendations = []
+            # Генерируем рекомендации
+            recommendations = []
 
-        # Рекомендация по времени
-        if 'best_hour' in insights['best_timing']:
-            recommendations.append(
-                f"Лучшее время для публикации: {insights['best_timing']['best_hour']}:00, "
-                f"{insights['best_timing']['best_day']}"
-            )
+            # Рекомендация по времени
+            if 'best_hour' in insights['best_timing']:
+                recommendations.append(
+                    f"Лучшее время для публикации: {insights['best_timing']['best_hour']}:00, "
+                    f"{insights['best_timing']['best_day']}"
+                )
 
-        # Рекомендация по медиа
-        if 'media_impact' in insights['content_patterns']:
-            media_stats = insights['content_patterns']['media_impact'].get('engagement_rate', {})
-            if media_stats:
-                best_media = max(media_stats.items(), key=lambda x: x[1] if x[1] is not None else 0)
-                if best_media[0] != 'None':
-                    recommendations.append(f"Посты с {best_media[0]} показывают лучший engagement")
+            # Рекомендация по медиа
+            if 'media_impact' in insights['content_patterns']:
+                media_stats = insights['content_patterns']['media_impact'].get('engagement_rate', {})
+                if media_stats:
+                    best_media = max(media_stats.items(), key=lambda x: x[1] if x[1] is not None else 0)
+                    if best_media[0] != 'None':
+                        recommendations.append(f"Посты с {best_media[0]} показывают лучший engagement")
 
-        # Рекомендация по длине
-        if 'length_impact' in insights['content_patterns']:
-            length_stats = insights['content_patterns']['length_impact'].get('engagement_rate', {})
-            if length_stats:
-                best_length = max(length_stats.items(), key=lambda x: x[1] if x[1] is not None else 0)
-                recommendations.append(f"Оптимальная длина текста: {best_length[0]}")
+            # Рекомендация по длине
+            if 'length_impact' in insights['content_patterns']:
+                length_stats = insights['content_patterns']['length_impact'].get('engagement_rate', {})
+                if length_stats:
+                    best_length = max(length_stats.items(), key=lambda x: x[1] if x[1] is not None else 0)
+                    recommendations.append(f"Оптимальная длина текста: {best_length[0]}")
 
-        insights['recommendations'] = recommendations
+            insights['recommendations'] = recommendations
 
-        return insights
-
-
+            return insights
+        except Exception as e:
+            # Возвращаем базовые инсайты при ошибке
+            print(f"Ошибка при генерации инсайтов: {e}")
+            return {
+                'summary': self.get_summary_statistics(),
+                'best_timing': {},
+                'content_patterns': {},
+                'top_posts': [],
+                'keywords': [],
+                'recommendations': [f"Ошибка анализа: {str(e)}"]
+            }

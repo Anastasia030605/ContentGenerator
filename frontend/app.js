@@ -3,8 +3,6 @@ const state = {
 };
 
 const els = {
-  healthResult: document.getElementById('healthResult'),
-  statusResult: document.getElementById('statusResult'),
   channelInfo: document.getElementById('channelInfo'),
   collectResult: document.getElementById('collectResult'),
   analysisResult: document.getElementById('analysisResult'),
@@ -24,6 +22,10 @@ function apiFetch(path, options = {}) {
   }).then(async (res) => {
     const body = await res.json().catch(() => null);
     if (!res.ok) {
+      // Если это ошибка 400 с сообщением о необходимости собрать посты
+      if (res.status === 400 && body?.detail && body.detail.includes('Сначала соберите посты')) {
+        throw new Error('Сначала соберите посты. Нажмите "Заполнить демонстрационными постами" или "Собрать посты" из Telegram канала.');
+      }
       throw new Error(body?.detail || res.statusText || 'Ошибка запроса');
     }
     return body;
@@ -47,7 +49,18 @@ function updateSelectOptions() {
 
 function setResult(element, content) {
   if (typeof content === 'object') {
-    element.textContent = JSON.stringify(content, null, 2);
+    // Если это ответ от API с полем plan (контент-план)
+    if (content.plan && Array.isArray(content.plan)) {
+      element.textContent = formatContentPlan(content.plan);
+    } 
+    // Если это ответ от API с полем post (сгенерированный пост)
+    else if (content.post) {
+      element.textContent = content.post;
+    }
+    // Если это обычный объект
+    else {
+      element.textContent = JSON.stringify(content, null, 2);
+    }
   } else {
     element.textContent = content;
   }
@@ -64,16 +77,6 @@ function getSelectedModelData() {
 function getChannelUsername() {
   const username = els.channelUsername.value.trim();
   return username ? username.replace(/^@+/, '') : undefined;
-}
-
-async function checkHealth() {
-  try {
-    setResult(els.healthResult, 'Загрузка...');
-    const data = await apiFetch('/api/health');
-    setResult(els.healthResult, `API доступен\nКанал: ${data.channel}`);
-  } catch (error) {
-    setResult(els.healthResult, `Ошибка: ${error.message}`);
-  }
 }
 
 function formatChannelInfo(data) {
@@ -115,7 +118,6 @@ async function collectPosts() {
     const payload = { limit, days_back: daysBack, channel_username: channelUsername };
     const data = await apiFetch('/api/collect', { method: 'POST', body: JSON.stringify(payload) });
     setResult(els.collectResult, `Собрано ${data.collected} постов\nКанал: ${data.channel}`);
-    await loadStatus();
   } catch (error) {
     setResult(els.collectResult, `Ошибка: ${error.message}`);
   }
@@ -123,7 +125,7 @@ async function collectPosts() {
 
 function formatAnalysis(data) {
   if (!data || !data.summary) {
-    return 'Нет данных для анализа.';
+    return 'Нет данных для анализа. Сначала соберите посты.';
   }
   const s = data.summary;
   const bt = data.best_timing || {};
@@ -163,6 +165,47 @@ function formatAnalysis(data) {
   return result;
 }
 
+function formatContentPlan(plan) {
+  if (!Array.isArray(plan) || plan.length === 0) {
+    return 'Контент-план пуст.';
+  }
+  
+  let result = `📅 КОНТЕНТ-ПЛАН (${plan.length} постов)\n`;
+  result += `${'='.repeat(50)}\n\n`;
+  
+  // Группируем по неделям
+  const weeks = {};
+  plan.forEach(item => {
+    const week = item.week || 1;
+    if (!weeks[week]) {
+      weeks[week] = [];
+    }
+    weeks[week].push(item);
+  });
+  
+  // Выводим по неделям
+  Object.keys(weeks).sort().forEach(week => {
+    result += `📌 НЕДЕЛЯ ${week}\n`;
+    result += `${'-'.repeat(30)}\n`;
+    
+    weeks[week].forEach((item, idx) => {
+      result += `\n${idx + 1}. ${item.day || 'День'} ${item.time || ''}\n`;
+      result += `   Тема: ${item.topic || 'Без темы'}\n`;
+      result += `   Формат: ${item.format || 'text'}\n`;
+      if (item.description) {
+        result += `   Описание: ${item.description}\n`;
+      }
+      if (item.goal) {
+        result += `   Цель: ${item.goal}\n`;
+      }
+    });
+    
+    result += `\n`;
+  });
+  
+  return result;
+}
+
 async function analyzeChannel() {
   try {
     setResult(els.analysisResult, 'Запрос анализа...');
@@ -177,14 +220,10 @@ async function indexPosts() {
   try {
     setResult(els.analysisResult, 'Индексация...');
     const data = await apiFetch('/api/index', { method: 'POST' });
-    setResult(els.analysisResult, `Индексировано: ${data.indexed}\nКоллекция: ${data.collection}`);
+    setResult(els.analysisResult, `✅ Индексировано: ${data.indexed} постов\n📁 Коллекция: ${data.collection}`);
   } catch (error) {
     setResult(els.analysisResult, `Ошибка: ${error.message}`);
   }
-}
-
-function formatStatus(data) {
-  return `Постов в базе: ${data.posts_count}\nСохранённых планов: ${data.plans_count}\nПоследний план: ${data.latest_plan || 'нет'}\nРежим демо доступен: ${data.demo_available ? 'да' : 'нет'}`;
 }
 
 function formatPosts(data) {
@@ -205,22 +244,11 @@ function formatPlans(data) {
     .join('\n');
 }
 
-async function loadStatus() {
-  try {
-    setResult(els.statusResult, 'Загрузка статуса...');
-    const data = await apiFetch('/api/status');
-    setResult(els.statusResult, formatStatus(data));
-  } catch (error) {
-    setResult(els.statusResult, `Ошибка: ${error.message}`);
-  }
-}
-
 async function demoData() {
   try {
     setResult(els.collectResult, 'Заполнение демонстрационными постами...');
     const data = await apiFetch('/api/demo-setup', { method: 'POST' });
-    setResult(els.collectResult, `${data.message} Создано ${data.created} постов.`);
-    await loadStatus();
+    setResult(els.collectResult, `✅ ${data.message} Создано ${data.created} постов.`);
   } catch (error) {
     setResult(els.collectResult, `Ошибка: ${error.message}`);
   }
@@ -302,13 +330,11 @@ async function loadProviders() {
     });
     updateSelectOptions();
   } catch (error) {
-    setResult(els.healthResult, `Ошибка загрузки провайдеров: ${error.message}`);
+    console.error('Ошибка загрузки провайдеров:', error);
   }
 }
 
 function initEventListeners() {
-  document.getElementById('btnHealth').addEventListener('click', checkHealth);
-  document.getElementById('btnRefreshStatus').addEventListener('click', loadStatus);
   document.getElementById('btnChannelInfo').addEventListener('click', loadChannelInfo);
   document.getElementById('btnCollect').addEventListener('click', collectPosts);
   document.getElementById('btnDemoData').addEventListener('click', demoData);
@@ -325,6 +351,4 @@ function initEventListeners() {
 window.addEventListener('load', async () => {
   initEventListeners();
   await loadProviders();
-  await checkHealth();
-  await loadStatus();
 });

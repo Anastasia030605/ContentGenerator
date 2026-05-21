@@ -52,6 +52,53 @@ class ContentPlanner:
 
         return insights_text
 
+    def _distribute_days(self, content_plan: List[Dict]) -> List[Dict]:
+        """
+        Проверяет и исправляет распределение постов по дням нед��ли.
+        Если в какой-либо неделе все посты сконцентрированы в один день, равномерно распределяет их.
+        """
+        if not content_plan:
+            return content_plan
+        
+        # Группируем по неделям
+        weeks = {}
+        for item in content_plan:
+            week = item.get('week', 1)
+            if week not in weeks:
+                weeks[week] = []
+            weeks[week].append(item)
+        
+        days_of_week = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+        best_hour = self.insights['best_timing'].get('best_hour', 12)
+        
+        modified = False
+        
+        for week_num, week_items in weeks.items():
+            if len(week_items) <= 1:
+                continue
+                
+            # Проверяем, все ли посты в одной неделе имеют одинаковый день
+            unique_days = set(item.get('day') for item in week_items)
+            if len(unique_days) == 1:
+                # Распределяем посты по дням недели циклически
+                for i, item in enumerate(week_items):
+                    day_index = i % len(days_of_week)
+                    item['day'] = days_of_week[day_index]
+                    # Устанавливаем время публикации на основе лучшего часа
+                    if not item.get('time') or not item['time'].strip():
+                        item['time'] = f"{best_hour:02d}:00"
+                modified = True
+                print(f"[INFO] Неделя {week_num}: посты распределены по дням недели")
+        
+        if modified:
+            # Собираем обратно все элементы
+            result = []
+            for week_num in sorted(weeks.keys()):
+                result.extend(weeks[week_num])
+            return result
+        
+        return content_plan
+
     def generate_content_plan(
         self,
         weeks: int = None,
@@ -86,7 +133,11 @@ class ContentPlanner:
 - Тему поста
 - Формат (текст, текст+фото, видео, опрос и т.д.)
 - Краткое описание содержания
-- Цель поста (информирование, вовлечение, продажи и т.д.)"""
+- Цель поста (информирование, вовлечение, продажи и т.д.)
+
+ВАЖНО: Распредели посты равномерно по дням недели, чтобы избежать концентрации в один день.
+Если постов больше, чем дней в неделе, можно использовать некоторые дни несколько раз,
+но старайся сохранять разнообразие."""
 
         user_prompt = f"""На основе анализа канала создай контент-план на {weeks} недель ({posts_per_week} постов в неделю).
 
@@ -147,6 +198,9 @@ class ContentPlanner:
             print(f"Ответ LLM:\n{content}")
             raise
 
+        # Проверяем и исправляем распределение по дням недели
+        content_plan = self._distribute_days(content_plan)
+
         print(f"[OK] Контент-план создан: {len(content_plan)} постов")
         return content_plan
 
@@ -189,5 +243,3 @@ class ContentPlanner:
             print(f"Цель: {item['goal']}")
 
         print("\n" + "=" * 80)
-
-

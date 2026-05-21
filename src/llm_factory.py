@@ -6,6 +6,7 @@
 """
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -207,7 +208,16 @@ def build_llm(
         model = model or settings.groq_model
         key = api_key or settings.groq_api_key
         if not key:
-            raise ValueError("Не задан GROQ_API_KEY. Получите бесплатный ключ на https://console.groq.com/keys")
+            # Проверяем, возможно, ключ есть в окружении, но не загрузился
+            env_key = os.getenv("GROQ_API_KEY")
+            if env_key:
+                key = env_key
+            else:
+                raise ValueError(
+                    "Не задан GROQ_API_KEY. Получите бесплатный ключ на https://console.groq.com/keys\n"
+                    "Добавьте ключ в переменную окружения GROQ_API_KEY или введите его в поле 'API-ключ (BYOK)'.\n"
+                    "Если вы хотите использовать демо-режим, выберите провайдер 'Демо-режим'."
+                )
         return ChatGroq(api_key=key, model=model, temperature=temperature)
 
     if provider == "google":
@@ -220,7 +230,15 @@ def build_llm(
         model = model or settings.google_model
         key = api_key or settings.google_api_key
         if not key:
-            raise ValueError("Не задан GOOGLE_API_KEY. Получите бесплатный ключ на https://aistudio.google.com/apikey")
+            env_key = os.getenv("GOOGLE_API_KEY")
+            if env_key:
+                key = env_key
+            else:
+                raise ValueError(
+                    "Не задан GOOGLE_API_KEY. Получите бесплатный ключ на https://aistudio.google.com/apikey\n"
+                    "Добавьте ключ в переменную окружения GOOGLE_API_KEY или введите его в поле 'API-ключ (BYOK)'.\n"
+                    "Если вы хотите использовать демо-режим, выберите провайдер 'Демо-режим'."
+                )
         return ChatGoogleGenerativeAI(google_api_key=key, model=model, temperature=temperature)
 
     if provider == "ollama":
@@ -256,7 +274,7 @@ def build_llm(
         model = model or settings.anthropic_model
         key = api_key or settings.anthropic_api_key
         if not key:
-            raise ValueError("Не задан ANTHROPIC_API_KEY")
+            raise ValueError("Не за��ан ANTHROPIC_API_KEY")
         return ChatAnthropic(api_key=key, model=model, temperature=temperature)
 
     raise ValueError(

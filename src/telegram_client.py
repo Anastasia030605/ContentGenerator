@@ -3,7 +3,7 @@
 import sqlite3
 import re
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 from bs4 import BeautifulSoup
@@ -131,7 +131,8 @@ class TelegramDataCollector:
         posts = []
         min_date = None
         if days_back:
-            min_date = datetime.now() - timedelta(days=days_back)
+            # Создаем дату с часовым поясом UTC для корректного сравнения
+            min_date = datetime.now(timezone.utc) - timedelta(days=days_back)
 
         print(f"Собираю посты из канала @{self.channel_username}...")
 
@@ -160,12 +161,18 @@ class TelegramDataCollector:
                     if post is None:
                         continue
 
-                    if min_date and post.date.replace(tzinfo=None) < min_date:
-                        # Достигли предела по дате
-                        if page_posts:
-                            posts.extend(page_posts)
-                        print(f"  Достигнут лимит по дате ({days_back} дней)")
-                        return posts[:limit]
+                    if min_date:
+                        # Гарантируем, что обе даты имеют часовой пояс для сравнения
+                        post_date_with_tz = post.date
+                        if post_date_with_tz.tzinfo is None:
+                            post_date_with_tz = post_date_with_tz.replace(tzinfo=timezone.utc)
+                        
+                        if post_date_with_tz < min_date:
+                            # Достигли предела по дате
+                            if page_posts:
+                                posts.extend(page_posts)
+                            print(f"  Достигнут лимит по дате ({days_back} дней)")
+                            return posts[:limit]
 
                     page_posts.append(post)
 
@@ -208,9 +215,14 @@ class TelegramDataCollector:
             # Дата
             date_el = msg_el.select_one('.tgme_widget_message_date time')
             if date_el and date_el.get('datetime'):
-                date = datetime.fromisoformat(date_el['datetime'].replace('Z', '+00:00'))
+                date_str = date_el['datetime']
+                # Telegram возвращает дату в UTC с 'Z' в конце
+                if date_str.endswith('Z'):
+                    date = datetime.fromisoformat(date_str[:-1] + '+00:00')
+                else:
+                    date = datetime.fromisoformat(date_str)
             else:
-                date = datetime.now()
+                date = datetime.now(timezone.utc)
 
             # Просмотры
             views = 0
@@ -245,6 +257,7 @@ class TelegramDataCollector:
             )
 
         except Exception as e:
+            print(f"Ошибка при парсинге сообщения: {e}")
             return None
 
     @staticmethod
@@ -270,7 +283,7 @@ class TelegramDataCollector:
 
         for post in posts:
             data = post.to_dict()
-            data['updated_at'] = datetime.now().isoformat()
+            data['updated_at'] = datetime.now(timezone.utc).isoformat()
 
             cursor.execute('''
                 INSERT OR REPLACE INTO posts
@@ -301,5 +314,3 @@ class TelegramDataCollector:
             posts.append(PostMetrics.from_dict(dict(row)))
 
         return posts
-
-

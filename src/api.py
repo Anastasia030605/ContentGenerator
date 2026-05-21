@@ -27,6 +27,7 @@ except ModuleNotFoundError:
 
 import json
 import math
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Any
@@ -73,7 +74,25 @@ def get_rag(require_collection: bool = True) -> RAGPostGenerator:
     """Ленивая инициализация RAG-генератора (эмбеддинги загружаются один раз)."""
     global _rag
     if _rag is None:
-        _rag = RAGPostGenerator()
+        try:
+            _rag = RAGPostGenerator()
+        except ValueError as e:
+            # Добавляем дополнительные инструкции по установке зависимостей
+            error_detail = f"{str(e)}\n\n"
+            error_detail += "Для установки всех необходимых зависимостей выполните следующие шаги:\n"
+            error_detail += "1. Активируйте виртуальное окружение (если используете)\n"
+            error_detail += "2. Установите все зависимости из requirements.txt: pip install -r requirements.txt\n"
+            error_detail += "3. Или установите пакеты вручную: pip install chromadb sentence-transformers langchain-core\n"
+            error_detail += "4. Перезапустите приложение после установки зависимостей"
+            raise HTTPException(
+                status_code=500,
+                detail=error_detail
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Неожиданная ошибка инициализации RAG-генератора: {str(e)}"
+            )
     if require_collection and _rag.collection is None:
         if not _rag.load_collection():
             raise HTTPException(
@@ -247,9 +266,15 @@ async def collect(req: CollectRequest):
         collector.save_posts(posts)
         return CollectResponse(collected=len(posts), channel=collector.channel_username)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Ошибка сбора: {e}")
+        # Логируем полную ошибку для отладки
+        print(f"Ошибка сбора постов: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=502, detail=f"Ошибка сбора постов: {e}")
     finally:
-        await collector.disconnect()
+        try:
+            await collector.disconnect()
+        except:
+            pass
 
 
 @app.get("/api/posts")
@@ -285,9 +310,16 @@ def analyze():
     collector = get_collector()
     posts = collector.load_posts()
     if not posts:
-        raise HTTPException(status_code=400, detail="Нет постов в БД. Сначала вызовите POST /api/collect")
-    analyzer = PostAnalyzer(posts)
-    return _clean_floats(analyzer.generate_insights())
+        raise HTTPException(status_code=400, detail="Сначала соберите посты. Нажмите 'Заполнить демонстрационными постами' или 'Собрать посты' из Telegram канала.")
+    try:
+        analyzer = PostAnalyzer(posts)
+        insights = analyzer.generate_insights()
+        return _clean_floats(insights)
+    except Exception as e:
+        # Логируем полную ошибку для отладки
+        print(f"Ошибка анализа канала: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Ошибка анализа канала: {e}")
 
 
 # ===== Индексация =====
@@ -297,15 +329,29 @@ def index_posts():
     collector = get_collector()
     posts = collector.load_posts()
     if not posts:
-        raise HTTPException(status_code=400, detail="Нет постов в БД. Сначала вызовите POST /api/collect")
-    rag = get_rag(require_collection=False)
+        raise HTTPException(status_code=400, detail="Сначала соберите посты. Нажмите 'Заполнить демонстрационными постами' или 'Собрать посты' из Telegram канала.")
+    try:
+        rag = get_rag(require_collection=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка инициализации RAG-генератора: {str(e)}")
+    
     try:
         rag.index_posts(posts)
         return {"indexed": rag.collection.count(), "collection": "channel_posts"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка индексирования: {str(e)}")
+        # Добавляем подробную информацию об ошибке для отладки
+        error_detail = f"Ошибка индексирования: {str(e)}\n\n"
+        error_detail += "Убедитесь, что установлены все необходимые зависимости:\n"
+        error_detail += "1. pip install chromadb sentence-transformers\n"
+        error_detail += "2. Или установите все зависимости: pip install -r requirements.txt\n"
+        error_detail += "3. Перезапустите приложение после установки"
+        print(f"Ошибка индексации: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 # ===== Контент-план =====
@@ -315,9 +361,9 @@ def create_content_plan(req: ContentPlanRequest):
     collector = get_collector()
     posts = collector.load_posts()
     if not posts:
-        raise HTTPException(status_code=400, detail="Нет постов в БД. Сначала вызовите POST /api/collect")
-    analyzer = PostAnalyzer(posts)
+        raise HTTPException(status_code=400, detail="Сначала соберите посты. Нажмите 'Заполнить демонстрационными постами' или 'Собрать посты' из Telegram канала.")
     try:
+        analyzer = PostAnalyzer(posts)
         # Если ключ не передан, используем из конфига
         api_key = req.api_key or None
         provider = req.provider or settings.ai_provider
@@ -338,6 +384,9 @@ def create_content_plan(req: ContentPlanRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Логируем полную ошибку для отладки
+        print(f"Ошибка генерации контент-плана: {e}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Ошибка генерации плана: {e}")
 
 
@@ -357,7 +406,13 @@ def list_content_plans():
 
 @app.post("/api/generate-post", response_model=GenerateResponse)
 def generate_post(req: GeneratePostRequest):
-    rag = get_rag()
+    try:
+        rag = get_rag()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка иници��лизации RAG-генератора: {str(e)}")
+    
     try:
         rag.llm = build_llm(provider=req.provider, model=req.model, api_key=req.api_key)
         rag.provider = req.provider or rag.provider
@@ -372,21 +427,45 @@ def generate_post(req: GeneratePostRequest):
         return GenerateResponse(post=post, provider=rag.provider, model=req.model)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Логируем полную ошибку для отладки
+        print(f"Ошибка генерации поста: {e}")
+        print(traceback.format_exc())
+        # Добавляем подробную информацию об ошибке
+        error_detail = f"Ошибка генерации поста: {str(e)}"
+        if "collection" in str(e).lower() or "индекс" in str(e).lower():
+            error_detail += "\n\nСначала проиндексируйте посты. Нажмите 'Проиндексировать' после сбора постов."
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @app.post("/api/refine-post", response_model=GenerateResponse)
 def refine_post(req: RefinePostRequest):
-    rag = get_rag()
+    try:
+        rag = get_rag()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка инициализации RAG-генератора: {str(e)}")
+    
     try:
         post = rag.refine_post(feedback=req.feedback)
         return GenerateResponse(post=post, provider=rag.provider, model=rag.model)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"Ошибка улучшения поста: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Ошибка улучшения поста: {e}")
 
 
 @app.post("/api/generate-from-plan")
 def generate_from_plan(req: GenerateFromPlanRequest):
-    rag = get_rag()
+    try:
+        rag = get_rag()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка инициализации RAG-генератора: {str(e)}")
 
     if req.content_plan is not None:
         plan = req.content_plan
@@ -414,3 +493,7 @@ def generate_from_plan(req: GenerateFromPlanRequest):
         return {"count": len(generated), "items": generated}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"Ошибка генерации постов из плана: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации постов из плана: {e}")
