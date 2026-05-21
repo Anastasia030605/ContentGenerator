@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    container_name: content-generator
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+
+    volumes:
+      - ./data:/app/data
+      - huggingface_cache:/root/.cache/huggingface
+
+    depends_on:
+      - ollama
+
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+
+    ports:
+      - "11434:11434"
+
+    volumes:
+      - ollama_data:/root/.ollama
+
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  huggingface_cache:

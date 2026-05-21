@@ -158,16 +158,28 @@ class DummyLLM:
 
         topic = "тема"
         if "создай пост на тему:" in lower:
-            topic = prompt.split("создай пост на тему:", 1)[1].split("\n", 1)[0].strip()
+            key = "создай пост на тему:"
+            idx = lower.find(key) + len(key)
+            # ищем конец строки или перенос
+            end = prompt.find("\n", idx)
+            if end != -1:
+                topic = prompt[idx:end].strip()
+            else:
+                topic = prompt[idx:].strip()
         elif "topic:" in lower:
-            topic = prompt.split("topic:", 1)[1].split("\n", 1)[0].strip()
+            key = "topic:"
+            idx = lower.find(key) + len(key)
+            end = prompt.find("\n", idx)
+            if end != -1:
+                topic = prompt[idx:end].strip()
+            else:
+                topic = prompt[idx:].strip()
 
         return (
             f"Демо-пост на тему '{topic}'.\n"
             "Этот текст сгенерирован локально без обращения к внешнему API.\n"
             "Используйте этот режим, чтобы быстро проверить интерфейс и структуру выходных данных."
         )
-
 
 def build_llm(
     provider: Optional[str] = None,
