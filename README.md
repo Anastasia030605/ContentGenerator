@@ -19,8 +19,11 @@ ContentGenerator/
 │   ├── analyzer.py           # Анализ популярности
 │   ├── content_planner.py    # Построение контент-плана
 │   ├── rag_generator.py      # RAG генерация постов
+│   ├── api.py               # FastAPI backend
 │   └── config.py             # Конфигурация
 ├── data/                     # Данные, БД, векторное хранилище
+├── Dockerfile
+├── docker-compose.yml
 ├── main.py                   # CLI интерфейс
 ├── requirements.txt
 └── .env                      # Настройки (создать из .env.example)
@@ -28,7 +31,9 @@ ContentGenerator/
 
 ## Установка
 
-### 1. Клонирование и установка зависимостей
+### Вариант 1. Локальный запуск (Python)
+
+#### 1. Клонирование и установка зависимостей
 
 ```bash
 # Создание виртуального окружения
@@ -42,6 +47,45 @@ source .venv/bin/activate
 
 # Установка зависимостей
 pip install -r requirements.txt
+```
+
+### Вариант 2. Запуск через Docker
+
+Требуется установленный Docker Desktop.
+
+#### 1. Клонирование проекта
+
+```bash
+git clone <repo-url>
+cd ContentGenerator
+```
+
+#### 2. Создание `.env`
+
+```bash
+# Windows
+copy .env.example .env
+
+# Linux/Mac
+cp .env.example .env
+```
+
+#### 3. Запуск
+
+```bash
+docker compose up --build
+```
+
+После запуска сервис будет доступен:
+
+```text
+http://localhost:8000
+```
+
+Для остановки:
+
+```bash
+docker compose down
 ```
 
 ### 2. Получение Telegram API credentials
@@ -425,5 +469,3 @@ MIT License
 - [ ] Интеграция с аналитическими сервисами
 - [ ] Поддержка других платформ (VK, Instagram)
 - [ ] Планировщик задач (cron)
-- [ ] Telegram бот для управления
-
