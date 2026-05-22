@@ -17,7 +17,8 @@ services:
       - huggingface_cache:/root/.cache/huggingface
 
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy  
 
     restart: unless-stopped
 
@@ -32,6 +33,19 @@ services:
       - ollama_data:/root/.ollama
 
     restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "ollama serve &
+      sleep 10 &&
+      ollama pull llama3.2:3b &&
+      wait"
 
 volumes:
   ollama_data:

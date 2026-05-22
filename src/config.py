@@ -26,7 +26,7 @@ if _USE_PYDANTIC_SETTINGS:
             extra="ignore"
         )
 
-        telegram_channel_username: str
+        telegram_channel_username: str = ""
         telegram_api_id: int | None = None
         telegram_api_hash: str | None = None
         telegram_phone: str | None = None

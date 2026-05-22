@@ -7,6 +7,7 @@
 
 import json
 import os
+import requests
 from dataclasses import dataclass
 from typing import Optional
 
@@ -246,10 +247,57 @@ def build_llm(
             from langchain_community.llms import Ollama
         except ModuleNotFoundError as exc:
             raise ValueError(
-                "Пакет langchain-community не установлен. Установите его через requirements.txt или pip install langchain-community"
+                "Пакет langchain-community не установлен."
             ) from exc
+
         model = model or settings.ollama_model
-        return Ollama(base_url=settings.ollama_base_url, model=model, temperature=temperature)
+
+        # Проверяем Ollama
+        try:
+            response = requests.get(
+                f"{settings.ollama_base_url}/api/tags",
+                timeout=5
+            )
+            response.raise_for_status()
+
+            installed_models = [
+                m["name"]
+                for m in response.json().get("models", [])
+            ]
+
+        except Exception as exc:
+            raise ValueError(
+                "Ollama не запущен.\n"
+                "Запустите Docker Compose или локальный Ollama."
+            ) from exc
+
+        # Автозагрузка модели
+        if model not in installed_models:
+            try:
+                pull_response = requests.post(
+                    f"{settings.ollama_base_url}/api/pull",
+                    json={"name": model},
+                    stream=True,
+                    timeout=None
+                )
+
+                pull_response.raise_for_status()
+
+                for line in pull_response.iter_lines():
+                    if line:
+                        print(line.decode())
+                print(f"[OLLAMA] Модель {model} успешно загружена")
+
+            except Exception as exc:
+                raise ValueError(
+                    f"Не удалось скачать модель {model} через Ollama."
+                ) from exc
+
+        return Ollama(
+            base_url=settings.ollama_base_url,
+            model=model,
+            temperature=temperature
+        )
 
     if provider == "openai":
         try:

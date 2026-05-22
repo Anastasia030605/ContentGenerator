@@ -8,7 +8,8 @@
 - **Анализ популярности**: Определение успешных паттернов контента, оптимального времени публикации
 - **Контент-планирование**: Автоматическое создание контент-плана на N недель с помощью LLM
 - **RAG генерация**: Генерация постов в стиле канала на основе векторного поиска и LLM
-- **Поддержка OpenAI и Anthropic**: Выбор между GPT и Claude для генерации
+- **Поддержка Groq, Gemini, Ollama, OpenAI и Anthropic**
+- **Локальная генерация через Ollama**: Работа без API-ключей
 
 ## Архитектура
 
@@ -73,7 +74,7 @@ cp .env.example .env
 #### 3. Запуск
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 После запуска сервис будет доступен:
@@ -87,6 +88,41 @@ http://localhost:8000
 ```bash
 docker compose down
 ```
+
+### Использование Ollama (локальная LLM)
+
+Проект поддерживает локальные модели через Ollama.
+
+Контейнер Ollama запускается автоматически вместе с приложением.
+
+При первом использовании провайдера `Ollama` нужная модель автоматически скачивается внутри контейнера.
+
+Например:
+
+- `llama3.2:3b`
+- `llama3.1:8b`
+- `qwen2.5:7b`
+
+Первое скачивание может занять несколько минут в зависимости от размера модели и скорости интернета.
+
+Проверить установленные модели:
+
+```bash
+docker exec -it ollama ollama list
+```
+
+Просмотреть логи Ollama:
+
+```bash
+docker compose logs ollama
+```
+
+> ⚠️ Локальные модели Ollama могут занимать несколько гигабайт дискового пространства.
+>
+> Пример:
+>
+> - llama3.2:3b → ~2 GB
+> - llama3.1:8b → ~5 GB
 
 ### 2. Получение Telegram API credentials
 
@@ -127,16 +163,28 @@ TELEGRAM_API_HASH=your_hash
 TELEGRAM_PHONE=+79991234567
 TELEGRAM_CHANNEL_USERNAME=your_channel
 
-# AI Provider (openai или anthropic)
-AI_PROVIDER=openai
+# AI Provider
+# Возможные значения:
+# groq | google | ollama | demo | openai | anthropic
+AI_PROVIDER=groq
+
+# Ollama
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_MODEL=llama3.2:3b
+
+# Groq
+GROQ_API_KEY=gsk_...
+
+# Google Gemini
+GOOGLE_API_KEY=...
 
 # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 
-# Или Anthropic
+# Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_MODEL=claude-sonnet-4-5
 ```
 
 ## Использование

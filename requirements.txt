@@ -20,6 +20,7 @@ uvicorn[standard]
 # Data processing
 pandas
 numpy
+requests
 
 # Configuration and utilities
 python-dotenv

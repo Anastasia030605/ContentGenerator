@@ -135,9 +135,15 @@ class ContentPlanner:
 - Краткое описание содержания
 - Цель поста (информирование, вовлечение, продажи и т.д.)
 
-ВАЖНО: Распредели посты равномерно по дням недели, чтобы избежать концентрации в один день.
-Если постов больше, чем дней в неделе, можно использовать некоторые дни несколько раз,
-но старайся сохранять разнообразие."""
+ВАЖНО:
+1. Ты ОБЯЗАН вернуть ТОЛЬКО валидный JSON.
+2. НЕ добавляй пояснения.
+3. НЕ добавляй markdown.
+4. НЕ добавляй текст до или после JSON.
+5. Ответ должен начинаться с [ и заканчиваться ].
+6. Каждый элемент массива должен быть объектом JSON.
+7. Распредели посты равномерно по дням недели.
+8. Никакого дополнительного текста вне JSON."""
 
         user_prompt = f"""На основе анализа канала создай контент-план на {weeks} недель ({posts_per_week} постов в неделю).
 
@@ -154,18 +160,30 @@ class ContentPlanner:
 - description: краткое описание (2-3 предложения)
 - goal: цель поста
 
-Пример:
+Пример корректного ответа:
+
 [
   {{
     "week": 1,
     "day": "Понедельник",
     "time": "10:00",
     "topic": "Утренняя мотивация",
-    "format": "photo",
-    "description": "Вдохновляющая цитата на красивом фоне",
+    "format": "text",
+    "description": "Короткий вдохновляющий пост для начала дня.",
     "goal": "Вовлечение аудитории"
+  }},
+  {{
+    "week": 1,
+    "day": "Среда",
+    "time": "14:00",
+    "topic": "Полезный совет",
+    "format": "photo",
+    "description": "Практический совет с визуальным оформлением.",
+    "goal": "Информирование"
   }}
-]"""
+]
+
+Верни ТОЛЬКО JSON."""
 
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
@@ -191,8 +209,26 @@ class ContentPlanner:
         elif "```" in content:
             content = content.split("```")[1].split("```")[0]
 
+        content = content.strip()
+
+        # Пытаемся вытащить JSON-массив даже если модель добавила текст
+        start = content.find('[')
+        end = content.rfind(']')
+
+        if start != -1 and end != -1:
+            content = content[start:end + 1]
+
+        print("\n===== RAW LLM RESPONSE =====")
+        print(content)
+        print("===== END RAW RESPONSE =====\n")
+
         try:
-            content_plan = json.loads(content.strip())
+            content_plan = json.loads(content)
+
+            print("\n===== PARSED CONTENT PLAN =====")
+            print(type(content_plan))
+            print(content_plan)
+            print("===== END PARSED =====\n")
         except json.JSONDecodeError as e:
             print(f"Ошибка парсинга JSON: {e}")
             print(f"Ответ LLM:\n{content}")

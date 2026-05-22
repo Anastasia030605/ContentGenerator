@@ -199,6 +199,7 @@ class RAGPostGenerator:
     def generate_post(
         self,
         topic: str,
+        channel_username: str = "",
         format_type: str = "text",
         additional_context: str = "",
         use_similar_posts: bool = True,
@@ -234,7 +235,7 @@ class RAGPostGenerator:
                 similar_posts_context = ""
 
         # Формируем промпт
-        system_prompt = f"""Ты - копирайтер Telegram канала. Твоя задача - создать пост в стиле этого канала.
+        system_prompt = f"""Ты - копирайтер Telegram канала. Название Telegram-канала: @{channel_username}. Твоя задача - создать пост в стиле этого канала.
 
 Важно:
 1. Изучи примеры постов и повтори их стиль, тон, структуру
@@ -242,6 +243,8 @@ class RAGPostGenerator:
 3. Сохрани характерные особенности: эмодзи, форматирование, обращение к аудитории
 4. Создай оригинальный контент, не копируй примеры напрямую
 5. Формат поста: {format_type}
+6. Пиши СТРОГО на русском языке
+7. Не выдумывай название канала — используй только предоставленный контекст
 
 {f"Контекст: {additional_context}" if additional_context else ""}"""
 
